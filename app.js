@@ -1,8 +1,9 @@
 const express = require('express'),
-      bodyJson = require('body-parser').json({ type: '*/*' }),
       basicAuth = require('express-basic-auth'),
+      bodyParser = require('body-parser'),
       requireDir = require('require-dir'),
-      request = require('requestretry');
+      request = require('requestretry'),
+      multer = require('multer');
 
 const fs = require('fs');
 
@@ -12,7 +13,11 @@ const url = require('url');
 const path = require('path');
 const manifest = requireDir(path.resolve(process.argv[2]));
 
-app.get('/text2speech', bodyJson, function(req, res) {
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(multer().any())
+
+app.get('/text2speech', function(req, res) {
     const text = req.query.text;
 
     if (!text) return res.send("please send request with params which is text");
@@ -25,35 +30,53 @@ app.get('/text2speech', bodyJson, function(req, res) {
             res.type('audio/mp3');
             res.send(body);
             res.end();
-            /* write mp3 into local
-            writeAudio(body, 'sample.mp3', function() {
-                res.download('./audio/sample.mp3', 'sample.mp3');
-            });
-            */
         } else {
             res.send(body);
-            //content-type = Application/json
         }
     });
 });
 
 app.get('/recognize', function(req, res) {
-    sendRecognize('smaple.amr', function(resp, body) {
+    sendRecognize('sample.amr', function(resp, body) {
         res.send(body);
     });
 });
 
 // 未來可以設計成POST音檔到這分析後回傳結果
-app.post('/recognize', bodyJson, function(req, res) {
-    const file = req.body.file; // base64 or bytes
+app.post('/recognize', function(req, res) {
     const format = req.body.format;
     const rate = req.body.rate;
     const token = req.body.token;
+    const files = req.files;
+
+    let buffer = null;
+    let filename = null;
+
+    if (format === undefined || 
+        token  === undefined ||
+        rate   === undefined ||
+        files  === undefined) {
+        return res.json( {'error' : '參數錯誤' } )
+    }
+
+    buffer = files[0].buffer ; // base64 or bytes
+    filename = files[0].originalname;
+
+    if (buffer==null) {
+        return res.json( {'error': '音檔有誤'} )
+    }
+
+    meta = {
+        'filename' : filename,
+        'format' : format,
+        'rate'   : rate
+    }
 
     //checkTokenFromDB() match db token是否相同
-
-    sendRecognize(file, function(resp, body) {
-        res.send(body);
+    writeAudio(buffer, filename, function() {
+        sendRecognize(meta, function(resp, body) {
+            return res.send(body);
+        });
     });
 });
 
@@ -77,11 +100,15 @@ function askAuth(method, callback) {
 }
 
 // To use the Baidu recognization API.
-function sendRecognize(filename, callback, format='amr', rate=8000) {
+function sendRecognize(meta, callback) {
     const URL = url.resolve(manifest.vendor.api.service.recognize, '/server_api');
+    const filename = meta['filename']
+    const format = meta['format']
+    const rate = meta['rate']
 
     let options = buildOpt('POST', URL);
-    options.body= buildVoiceObj(format, rate, manifest.token.access_token);
+
+    options.body= buildVoiceObj(filename, format, rate, manifest.token.access_token);
 
     console.log(options);
     invokeApi(options, function(res, body) {
@@ -139,8 +166,8 @@ function buildTextObj(text, token) {
     }
 }
 
-function buildVoiceObj(format, rate, token) {
-    const filename = 'sample.amr';
+function buildVoiceObj(filename, format, rate, token) {
+    //const filename = 'sample.amr';
     const buffer = getFileInBuffer(filename); // return buffer in bytes
 
     return {
@@ -154,15 +181,18 @@ function buildVoiceObj(format, rate, token) {
     }
 }
 
-// Use for voice recognize
-function getFileInBuffer(filename, host='./samples') {
-    const file = path.resolve(host, filename);
+// Use for voice recognize 
+// Read audio from local
+function getFileInBuffer(filename, folder='./audio') {
+    const file = path.resolve(folder, filename);
     const buf = fs.readFileSync(file);
     console.log(buf.length);
 
     return buf;
 }
 
+
+// Write audio into local
 function writeAudio(buffer, filename, callback) {
     const file = path.resolve('./audio', filename);
 
