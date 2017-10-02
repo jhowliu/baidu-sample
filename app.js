@@ -3,7 +3,8 @@ const express = require('express'),
       bodyParser = require('body-parser'),
       requireDir = require('require-dir'),
       request = require('requestretry'),
-      multer = require('multer');
+      multer = require('multer'),
+      jwt = require('jsonwebtoken');
 
 const fs = require('fs');
 
@@ -13,14 +14,34 @@ const url = require('url');
 const path = require('path');
 const manifest = requireDir(path.resolve(process.argv[2]));
 
+let spawn = require('child_process').spawn;
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(multer().any())
 
+app.post('/token', function(req, res) {
+    const user = req.body.user || req.query.user
+    console.log(user)
+    if (user === manifest.partner.user) {
+        var token = jwt.sign({user: user}, manifest.partner.secret, {
+            expiresIn: 60*10
+        })
+
+        res.json({
+            success: true,
+            message: 'Enjoy your token',
+            token: token
+        })
+    } else {
+        res.json({ success: false, message: 'Authenticate failed. User not found.' }) 
+    }
+});
+
 app.get('/text2speech', function(req, res) {
     const text = req.query.text;
 
-    if (!text) return res.send("please send request with params which is text");
+    if (!text) return res.json({ success: false, message: 'please send request with params which is text'});
 
     text2Speech(text, function(resp, body) {
         const contentType = resp.headers['content-type'];
@@ -43,28 +64,31 @@ app.get('/recognize', function(req, res) {
 });
 
 // 未來可以設計成POST音檔到這分析後回傳結果
-app.post('/recognize', function(req, res) {
+app.post('/recognize', verifyToken, function(req, res) {
     const format = req.body.format;
     const rate = req.body.rate;
-    const token = req.body.token;
     const files = req.files;
 
     let buffer = null;
     let filename = null;
 
     if (format === undefined || 
-        token  === undefined ||
         rate   === undefined ||
         files  === undefined) {
-        return res.json( {'error' : '參數錯誤' } )
+        return res.json({ success: false, message: 'parameters error.' })
+    }
+
+    if (!files.length) {
+        return res.json({ success: false, message: 'please provide a audio'})
     }
 
     buffer = files[0].buffer ; // base64 or bytes
     filename = files[0].originalname;
 
     if (buffer==null) {
-        return res.json( {'error': '音檔有誤'} )
+        return res.json({ success: false, message: 'please provide a audio in binary format.)'})
     }
+
 
     meta = {
         'filename' : filename,
@@ -73,12 +97,29 @@ app.post('/recognize', function(req, res) {
     }
 
     //checkTokenFromDB() match db token是否相同
-    writeAudio(buffer, filename, function() {
+    writeAudio(buffer, rate, filename, function() {
         sendRecognize(meta, function(resp, body) {
-            return res.send(body);
+            return res.json({ success: true, message: body})
         });
     });
 });
+
+function verifyToken(req, res, next) {
+    console.log(req.body)
+    const token = req.body.token || req.query.token
+
+    if (token) {
+        jwt.verify(token, manifest.partner.secret, function (err, decode) {
+            if (err) {
+                return res.json({success: false, message: 'Failed to authenticate token.'})
+            } else {
+                return next()
+            }
+        });
+    } else {
+        return res.json({success: false, message: 'No token provided.'})
+    }
+}
 
 // Invoke request
 function invokeApi(requestOpts, callback) {
@@ -110,7 +151,7 @@ function sendRecognize(meta, callback) {
 
     options.body= buildVoiceObj(filename, format, rate, manifest.token.access_token);
 
-    console.log(options);
+    //console.log(options);
     invokeApi(options, function(res, body) {
         callback(res, body);
     });
@@ -125,7 +166,7 @@ function text2Speech(text, callback) {
     // 預設是UTF-8, 因為格式是BINARY, 所以不需要encoding
     options.encoding = null;
 
-    console.log(options);
+    //console.log(options);
     invokeApi(options, function(res, body) {
         callback(res, body);
     });
@@ -193,14 +234,36 @@ function getFileInBuffer(filename, folder='./audio') {
 
 
 // Write audio into local
-function writeAudio(buffer, filename, callback) {
+function writeAudio(buffer, rate, filename, callback) {
     const file = path.resolve('./audio', filename);
 
     fs.writeFile(file, buffer,function(err) {
         if (err) throw err; 
-        console.log('done');
-        callback();
+        convertAudio(filename, rate, function() {
+            callback();
+        })
     });
+}
+
+function convertAudio(filename, rate, callback) {
+    const cmd = '/usr/bin/ffmpeg'
+
+    const args = [
+        '-y',
+        '-i', path.resolve('./audio', filename),
+        '-acodec', 'pcm_s16le',
+        '-f', 's16le',
+        '-ac', '1',
+        '-ar', rate,
+        path.resolve('./audio', filename)
+    ]
+
+    let proc = spawn(cmd, args);
+
+    proc.on('close', function() {
+        console.log('finished');
+        callback();
+    })
 }
 
 /*
@@ -213,5 +276,5 @@ askAuth("POST", function(res, body) {
 */
 
 app.listen(manifest.vendor.app.port, () => {
-  console.log(`Echo Bot listening on port ${manifest.vendor.app.port}!`);
+  console.log(`Listening on port ${manifest.vendor.app.port}!`);
 });
