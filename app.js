@@ -25,7 +25,7 @@ app.post('/token', function(req, res) {
     console.log(user)
     if (user === manifest.partner.user) {
         var token = jwt.sign({user: user}, manifest.partner.secret, {
-            expiresIn: 60*10
+            expiresIn: 60*60*24*365
         })
 
         res.json({
@@ -57,12 +57,6 @@ app.get('/text2speech', function(req, res) {
     });
 });
 
-app.get('/recognize', function(req, res) {
-    sendRecognize('sample.amr', function(resp, body) {
-        res.send(body);
-    });
-});
-
 // 未來可以設計成POST音檔到這分析後回傳結果
 app.post('/recognize', verifyToken, function(req, res) {
     const format = req.body.format;
@@ -85,10 +79,9 @@ app.post('/recognize', verifyToken, function(req, res) {
     buffer = files[0].buffer ; // base64 or bytes
     filename = files[0].originalname;
 
-    if (buffer==null) {
+    if (buffer===undefined) {
         return res.json({ success: false, message: 'please provide a audio in binary format.)'})
     }
-
 
     meta = {
         'filename' : filename,
@@ -96,10 +89,12 @@ app.post('/recognize', verifyToken, function(req, res) {
         'rate'   : rate
     }
 
-    //checkTokenFromDB() match db token是否相同
+    res.json({ success: true, message: 'please wait for callback data.' })
+
     writeAudio(buffer, rate, filename, function() {
         sendRecognize(meta, function(resp, body) {
-            return res.json({ success: true, message: body})
+            //return res.json({ success: true, message: body})
+            console.log(body);
         });
     });
 });
