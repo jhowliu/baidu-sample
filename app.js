@@ -38,29 +38,25 @@ app.post('/token', function(req, res) {
     }
 });
 
-app.get('/text2speech', function(req, res) {
-    const text = req.query.text;
+app.post('/callback', function(req, res) {
+    console.log(req.body);
+    const filename = 'reply.mp3'
+    const buffer = new Buffer(req.body.data, 'base64');
+    console.log(buffer)
 
-    if (!text) return res.json({ success: false, message: 'please send request with params which is text'});
+    writeAudio(buffer, filename, function() {
+        res.json({success: true, message: 'saved'})
+    })
 
-    text2Speech(text, function(resp, body) {
-        const contentType = resp.headers['content-type'];
-
-        if (contentType == 'audio/mp3') {
-            console.log(body)
-            res.type('audio/mp3');
-            res.send(body);
-            res.end();
-        } else {
-            res.send(body);
-        }
-    });
-});
+})
 
 // 未來可以設計成POST音檔到這分析後回傳結果
 app.post('/recognize', verifyToken, function(req, res) {
-    const format = req.body.format;
-    const rate = req.body.rate;
+    const format = req.body.format || req.query.format;
+    const rate = req.body.rate || req.query.rate;
+    const callbackURL = req.body.callback || req.query.callback;
+    const sid = req.body.sid || req.query.sid;
+    const cid = req.body.cid || req.query.cid;
     const files = req.files;
 
     let buffer = null;
@@ -68,15 +64,17 @@ app.post('/recognize', verifyToken, function(req, res) {
 
     if (format === undefined || 
         rate   === undefined ||
-        files  === undefined) {
+        cid    === undefined || 
+        sid    === undefined ||
+        callbackURL === undefined) {
         return res.json({ success: false, message: 'parameters error.' })
     }
 
-    if (!files.length) {
+    if (files === undefined || !files.length) {
         return res.json({ success: false, message: 'please provide a audio'})
     }
 
-    buffer = files[0].buffer ; // base64 or bytes
+    buffer = files[0].buffer ; // bytes
     filename = files[0].originalname;
 
     if (buffer===undefined) {
@@ -91,14 +89,22 @@ app.post('/recognize', verifyToken, function(req, res) {
 
     res.json({ success: true, message: 'please wait for callback data.' })
 
-    writeAudio(buffer, rate, filename, function() {
-        sendRecognize(meta, function(resp, body) {
-            //return res.json({ success: true, message: body})
-            console.log(body);
-        });
+    writeAudio(buffer, filename, function() {
+        convertAudio(filename, rate, function() {
+            sendRecognize(meta, function(resp, body) {
+                // send the text to dialogue api
+                console.log(body)
+                text = '你好嗎';
+                dialogueAPI(text, sid, callbackURL, function(res, body) {
+                    // send reply mp3 to callback url
+                    console.log(body);
+                })
+            });
+        })
     });
 });
 
+// middleware to verify incoming token
 function verifyToken(req, res, next) {
     console.log(req.body)
     const token = req.body.token || req.query.token
@@ -114,6 +120,23 @@ function verifyToken(req, res, next) {
     } else {
         return res.json({success: false, message: 'No token provided.'})
     }
+}
+
+// Call dialogue api
+function dialogueAPI(text, sid, callbackURL, callback) {
+    text2Speech(text, function(res, body) {
+        let options = buildOpt('POST', callbackURL)  
+
+        // Avoiding some package parse to utf-8
+        options.body = { 
+            'sid' : sid,
+            'data': body.toString('base64') 
+        };
+
+        invokeApi(options, function(res, body) {
+            callback(res, body);
+        });
+    });
 }
 
 // Invoke request
@@ -143,7 +166,6 @@ function sendRecognize(meta, callback) {
     const rate = meta['rate']
 
     let options = buildOpt('POST', URL);
-
     options.body= buildVoiceObj(filename, format, rate, manifest.token.access_token);
 
     //console.log(options);
@@ -155,7 +177,7 @@ function sendRecognize(meta, callback) {
 function text2Speech(text, callback) {
     const URL = url.resolve(manifest.vendor.api.service.tts.host, 
                             manifest.vendor.api.service.tts.path);
-    
+
     let options = buildOpt('POST', URL);
     options.form = buildTextObj(text, manifest.token.access_token);
     // 預設是UTF-8, 因為格式是BINARY, 所以不需要encoding
@@ -229,14 +251,12 @@ function getFileInBuffer(filename, folder='./audio') {
 
 
 // Write audio into local
-function writeAudio(buffer, rate, filename, callback) {
+function writeAudio(buffer, filename, callback) {
     const file = path.resolve('./audio', filename);
 
     fs.writeFile(file, buffer,function(err) {
         if (err) throw err; 
-        convertAudio(filename, rate, function() {
-            callback();
-        })
+        callback()
     });
 }
 
