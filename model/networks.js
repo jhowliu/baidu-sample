@@ -31,20 +31,39 @@ module.exports.buildOpt = function (method, host, json=true) {
 
 module.exports.buildAuthObj = function () {
     return {
-        'grant_type': 'client_credentials',
-        'client_id': manifest.vendor.id,
-        'client_secret': manifest.vendor.secret
+        grant_type: 'client_credentials',
+        client_id: manifest.vendor.id,
+        client_secret: manifest.vendor.secret
     }
 }
 
 module.exports.buildTextObj = function (text, token) {
     return {
-        'tex'  : text.toString('utf8'),
-        'lan'  : 'zh',
-        'ctp'  : 1,
-        'spd'  : 3,
-        'cuid' : manifest.vendor.app.id,
-        'tok': token
+        tex  : text.toString('utf8'),
+        lan  : 'zh',
+        ctp  : 1,
+        spd  : 3,
+        cuid : manifest.vendor.app.id,
+        tok  : token
+    }
+}
+// For Greeting
+module.exports.buildIVRObj = function (sid) {
+    return {
+        PersonName: manifest.user.username,
+        IDNo: manifest.user.identifier,
+        ServiceType: manifest.user.service,
+        Date: manifest.user.date,
+        appid: manifest.user.appid,
+        session: sid,
+    }
+}
+
+module.exports.buildDiagObj = function(sid, text, appid) {
+    return {
+        q: text,
+        appid: appid,
+        session: sid
     }
 }
 
@@ -53,12 +72,27 @@ module.exports.buildVoiceObj = function (filename, format, rate, token) {
     const buffer = utils.getFileInBuffer(filename); // return buffer in bytes
 
     return {
-        'channel': 1,
-        'format' : format,
-        'rate'   : rate,
-        'token'  : token,
-        'cuid'   : manifest.vendor.app.id,
-        'len'    : buffer.length,
-        'speech' : buffer.toString('base64'),
+        channel: 1,
+        format : format,
+        rate   : rate,
+        token  : token,
+        cuid   : manifest.vendor.app.id,
+        len    : buffer.length,
+        speech : buffer.toString('base64'),
     }
+}
+
+
+module.exports.sendCallback = function (sid, binary, callbackURL, callback) {
+    let options = this.buildOpt('POST', callbackURL)  
+
+    // Avoiding some package parse to utf-8
+    options.body = { 
+        'sid' : sid,
+        'data': binary.toString('base64') 
+    };
+    
+    this.invokeApi(options, function(res, body) {
+        callback(res, body);
+    });
 }

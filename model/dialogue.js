@@ -1,13 +1,29 @@
 const path = require('path');
 const requireDir = require('require-dir');
 
+const net = require('./networks');
+const manifest = requireDir('../manifest');
 
-const DialogueControl = module.exports
+module.exports.greeting = function(sid, callback) {
+    let options = net.buildOpt('GET', manifest.services.apis.sunshine.host);
 
-module.exports.greeting = function() {
+    const payload = net.buildIVRObj(sid);
 
+    console.log(payload);
+
+    options.qs = payload
+
+    net.invokeApi(options, function(res, body) {
+        console.log("In Greeting: \n" + JSON.stringify(body));
+
+        if ('dialogueReply' in body) {
+            callback(body.dialogueReply);
+        } else {
+            callback(undefined);
+        }
+    });
 }
 
 module.exports.conversation = function(text) {
-
+    let options = net.buildOpt('GET', manifest.services.apis.sunshine.host);
 }

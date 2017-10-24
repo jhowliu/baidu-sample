@@ -5,7 +5,8 @@ const express = require('express'),
       request = require('requestretry'),
       multer = require('multer'),
       jwt = require('jsonwebtoken'),
-      fs = require('fs');
+      fs = require('fs'),
+      cors = require('cors');
 
 const app = express();
 const url = require('url');
@@ -18,9 +19,32 @@ const baidu = require('./model/baidu');
 const utils = require('./model/utils');
 const diagFlow = require('./model/dialogue');
 
+let SESSION_IDS = []; 
+
+
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: false }));
 app.use(multer().any())
+
+app.use(cors());
+
+app.post('/user', function(req, res) {
+    const identifier = req.body.identifier;
+    const username = req.body.username;
+    const service = req.body.service;
+    const date = req.body.date;
+
+    fs.writeFileSync('./manifest/user.json', JSON.stringify({
+        identifier: identifier,
+        username: username,
+        service: service,
+        date: date,
+        appid: "sunshine"
+    }, null, '    '), 'utf-8');
+
+    res.json({ success: true, msg: "Save successfully." });
+
+});
 
 app.post('/token', function(req, res) {
     const user = req.body.user || req.query.user
@@ -44,7 +68,7 @@ app.post('/token', function(req, res) {
 // Just for testing
 app.post('/callback', function(req, res) {
     console.log(req.body);
-    const filename = 'reply.mp3'
+    const filename = utils.generateRandomString() + '.mp3';
     const buffer = new Buffer(req.body.data, 'base64');
     console.log(buffer)
 
@@ -57,6 +81,7 @@ app.post('/callback', function(req, res) {
 
 // 未來可以設計成POST音檔到這分析後回傳結果
 app.post('/recognize', verifyToken, function(req, res) {
+    console.log(req.referer);
     const format = req.body.format || req.query.format;
     const rate = req.body.rate || req.query.rate;
     const callbackURL = req.body.callback || req.query.callback;
@@ -104,9 +129,8 @@ app.post('/recognize', verifyToken, function(req, res) {
         utils.convertAudio(filename, rate, function() {
             baidu.sendRecognize(meta, function(resp, body) {
                 // send the text to dialogue api
-                console.log(body)
-                text = '你好嗎';
-                dialogueAPI(text, sid, callbackURL, function(res, body) {
+                console.log(body);
+                dialogueAPI(sid, callbackURL, function(res, body) {
                     // send reply mp3 to callback url
                     console.log(body);
                 })
@@ -144,20 +168,26 @@ function verifyToken(req, res, next) {
 }
 
 // Call dialogue api (POST the reply to the callback url)
-function dialogueAPI(text, sid, callbackURL, callback) {
-    baidu.text2Speech(text, function(res, body) {
-        let options = net.buildOpt('POST', callbackURL)  
+function dialogueAPI(sid, callbackURL, callback) {
 
-        // Avoiding some package parse to utf-8
-        options.body = { 
-            'sid' : sid,
-            'data': body.toString('base64') 
-        };
-        
-        net.invokeApi(options, function(res, body) {
-            callback(res, body);
+    // Greeting First
+    if (!(sid in SESSION_IDS)) {
+        diagFlow.greeting(sid, function(text) {
+            if (text === undefined) {
+                text = '我聽不清楚，請再說一遍';
+            } 
+            baidu.text2Speech(text, function(res, body) {
+                net.sendCallback(sid, body, callbackURL, function(res, body) {
+                    callback(res, body);
+                }) 
+            });
         });
-    });
+    }
+
+    // Conversation Time 
+    if ( sid in SESSION_IDS) {
+
+    }
 }
 
 
