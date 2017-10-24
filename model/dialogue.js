@@ -4,10 +4,10 @@ const requireDir = require('require-dir');
 const net = require('./networks');
 const manifest = requireDir('../manifest');
 
-module.exports.greeting = function(sid, callback) {
+module.exports.greeting = function(user, sid, callback) {
     let options = net.buildOpt('GET', manifest.services.apis.sunshine.host);
 
-    const payload = net.buildIVRObj(sid);
+    const payload = net.buildIVRObj(user, sid);
 
     console.log(payload);
 
@@ -15,12 +15,7 @@ module.exports.greeting = function(sid, callback) {
 
     net.invokeApi(options, function(res, body) {
         console.log("In Greeting: \n" + JSON.stringify(body));
-
-        if ('dialogueReply' in body) {
-            callback(body.dialogueReply);
-        } else {
-            callback(undefined);
-        }
+        callback(body);
     });
 }
 

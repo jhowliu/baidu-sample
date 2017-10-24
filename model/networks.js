@@ -1,10 +1,10 @@
 const request = require('requestretry');
 const requireDir = require('require-dir');
 
-const manifest = requireDir('../manifest');
-
 const utils = require('./utils');
 const baidu = require('./baidu');
+
+let manifest = requireDir('../manifest');
 
 // Invoke request
 module.exports.invokeApi = function (requestOpts, callback) {
@@ -48,13 +48,13 @@ module.exports.buildTextObj = function (text, token) {
     }
 }
 // For Greeting
-module.exports.buildIVRObj = function (sid) {
+module.exports.buildIVRObj = function (user, sid) {
     return {
-        PersonName: manifest.user.username,
-        IDNo: manifest.user.identifier,
-        ServiceType: manifest.user.service,
-        Date: manifest.user.date,
-        appid: manifest.user.appid,
+        PersonName: user.username,
+        IDNo: user.identifier,
+        ServiceType: user.service,
+        Date: user.date,
+        appid: user.appid,
         session: sid,
     }
 }

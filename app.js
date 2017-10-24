@@ -20,7 +20,7 @@ const utils = require('./model/utils');
 const diagFlow = require('./model/dialogue');
 
 let SESSION_IDS = []; 
-
+let userInfos = require('./config/user');
 
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: false }));
@@ -28,19 +28,15 @@ app.use(multer().any())
 
 app.use(cors());
 
-app.post('/user', function(req, res) {
-    const identifier = req.body.identifier;
-    const username = req.body.username;
-    const service = req.body.service;
-    const date = req.body.date;
+app.get('/download/:id', function(req, res) {
+    res.sendFile(path.resolve('./audio', req.params.id+'.mp3'));
+});
 
-    fs.writeFileSync('./manifest/user.json', JSON.stringify({
-        identifier: identifier,
-        username: username,
-        service: service,
-        date: date,
-        appid: "sunshine"
-    }, null, '    '), 'utf-8');
+app.post('/user', function(req, res) {
+    userInfos.identifier = req.body.identifier;
+    userInfos.username = req.body.username;
+    userInfos.service = req.body.service;
+    userInfos.date = req.body.date;
 
     res.json({ success: true, msg: "Save successfully." });
 
@@ -48,7 +44,7 @@ app.post('/user', function(req, res) {
 
 app.post('/token', function(req, res) {
     const user = req.body.user || req.query.user
-    console.log(user)
+
     if (user === manifest.partner.user) {
         var token = jwt.sign({user: user}, manifest.partner.secret, {
             expiresIn: 60*60*24*365
@@ -67,10 +63,9 @@ app.post('/token', function(req, res) {
 
 // Just for testing
 app.post('/callback', function(req, res) {
-    console.log(req.body);
     const filename = utils.generateRandomString() + '.mp3';
     const buffer = new Buffer(req.body.data, 'base64');
-    console.log(buffer)
+    console.log(filename)
 
     utils.writeAudio(buffer, filename, function() {
         res.json({success: true, message: 'saved'})
@@ -81,7 +76,7 @@ app.post('/callback', function(req, res) {
 
 // 未來可以設計成POST音檔到這分析後回傳結果
 app.post('/recognize', verifyToken, function(req, res) {
-    console.log(req.referer);
+    console.log("REFERER: " + req.referer);
     const format = req.body.format || req.query.format;
     const rate = req.body.rate || req.query.rate;
     const callbackURL = req.body.callback || req.query.callback;
@@ -129,7 +124,6 @@ app.post('/recognize', verifyToken, function(req, res) {
         utils.convertAudio(filename, rate, function() {
             baidu.sendRecognize(meta, function(resp, body) {
                 // send the text to dialogue api
-                console.log(body);
                 dialogueAPI(sid, callbackURL, function(res, body) {
                     // send reply mp3 to callback url
                     console.log(body);
@@ -172,10 +166,13 @@ function dialogueAPI(sid, callbackURL, callback) {
 
     // Greeting First
     if (!(sid in SESSION_IDS)) {
-        diagFlow.greeting(sid, function(text) {
-            if (text === undefined) {
-                text = '我聽不清楚，請再說一遍';
-            } 
+        diagFlow.greeting(userInfos, sid, function(reply) {
+            let text = '我聽不清楚，請再說一遍';
+
+            if (reply != undefined && 'dialogueReply' in reply) {
+                text = reply.dialogueReply;
+            }
+
             baidu.text2Speech(text, function(res, body) {
                 net.sendCallback(sid, body, callbackURL, function(res, body) {
                     callback(res, body);
