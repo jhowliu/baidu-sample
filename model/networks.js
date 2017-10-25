@@ -42,33 +42,26 @@ module.exports.buildTextObj = function (text, token) {
         tex  : text.toString('utf8'),
         lan  : 'zh',
         ctp  : 1,
-        spd  : 3,
+        spd  : 4,
         cuid : manifest.vendor.app.id,
         tok  : token
     }
 }
-// For Greeting
-module.exports.buildIVRObj = function (user, sid) {
-    return {
-        PersonName: user.username,
-        IDNo: user.identifier,
-        ServiceType: user.service,
-        Date: user.date,
-        appid: user.appid,
-        session: sid,
-    }
-}
 
-module.exports.buildDiagObj = function(sid, text, appid) {
+// session, appid are required
+module.exports.buildDiagObj = function() {
     return {
-        q: text,
-        appid: appid,
-        session: sid
+        q: undefined,
+        session: undefined,
+        appid: undefined,
+        PersonName: undefined,
+        IDNo: undefined,
+        ServiceType: undefined,
+        Date: undefined,
     }
 }
 
 module.exports.buildVoiceObj = function (filename, format, rate, token) {
-    //const filename = 'sample.amr';
     const buffer = utils.getFileInBuffer(filename); // return buffer in bytes
 
     return {

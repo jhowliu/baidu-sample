@@ -30,7 +30,6 @@ module.exports.sendRecognize = function (meta, callback) {
     let options = net.buildOpt('POST', URL);
     options.body= net.buildVoiceObj(filename, format, rate, manifest.token.access_token);
 
-    //console.log(options);
     net.invokeApi(options, function(res, body) {
         callback(res, body);
     });
@@ -45,7 +44,6 @@ module.exports.text2Speech = function (text, callback) {
     // 預設是UTF-8, 因為格式是BINARY, 所以不需要encoding
     options.encoding = null;
 
-    //console.log(options);
     net.invokeApi(options, function(res, body) {
         callback(res, body);
     });

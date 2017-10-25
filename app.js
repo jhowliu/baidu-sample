@@ -19,7 +19,7 @@ const baidu = require('./model/baidu');
 const utils = require('./model/utils');
 const diagFlow = require('./model/dialogue');
 
-let SESSION_IDS = []; 
+let SESSIONS = []; 
 let userInfos = require('./config/user');
 
 app.use(bodyParser.json({ limit: '5mb' }));
@@ -31,6 +31,17 @@ app.use(cors());
 app.get('/download/:id', function(req, res) {
     res.sendFile(path.resolve('./audio', req.params.id+'.mp3'));
 });
+
+app.get('/text2speech', function(req, res) {
+    let text = req.body.text || req.query.text;
+    const filename = utils.generateRandomString() + '.mp3';
+
+    baidu.text2Speech(text, function(resp, buffer) {
+        utils.writeAudio(buffer, filename, function() {
+            res.json({success: true, message: 'saved', filename: filename});
+        })
+    })
+})
 
 app.post('/user', function(req, res) {
     userInfos.identifier = req.body.identifier;
@@ -76,7 +87,6 @@ app.post('/callback', function(req, res) {
 
 // 未來可以設計成POST音檔到這分析後回傳結果
 app.post('/recognize', verifyToken, function(req, res) {
-    console.log("REFERER: " + req.referer);
     const format = req.body.format || req.query.format;
     const rate = req.body.rate || req.query.rate;
     const callbackURL = req.body.callback || req.query.callback;
@@ -123,11 +133,16 @@ app.post('/recognize', verifyToken, function(req, res) {
     utils.writeAudio(buffer, filename, function() {
         utils.convertAudio(filename, rate, function() {
             baidu.sendRecognize(meta, function(resp, body) {
+                console.log("AFTER RECOGNIZE: \n" + JSON.stringify(body));
+                let text = '辨識失敗，請加大音量'
+                if (!body.err_no) {
+                    text = body.result[0]
+                }
                 // send the text to dialogue api
-                dialogueAPI(sid, callbackURL, function(res, body) {
+                dialogueAPI(text, sid, callbackURL, function(res, body) {
                     // send reply mp3 to callback url
                     console.log(body);
-                })
+                });
             });
         })
     });
@@ -162,32 +177,39 @@ function verifyToken(req, res, next) {
 }
 
 // Call dialogue api (POST the reply to the callback url)
-function dialogueAPI(sid, callbackURL, callback) {
+function dialogueAPI(text, sid, callbackURL, callback) {
+    const info = {
+        user: userInfos,
+        sid: sid,
+        text: text
+    }
 
+    console.log(SESSIONS);
     // Greeting First
-    if (!(sid in SESSION_IDS)) {
-        diagFlow.greeting(userInfos, sid, function(reply) {
-            let text = '我聽不清楚，請再說一遍';
-
-            if (reply != undefined && 'dialogueReply' in reply) {
-                text = reply.dialogueReply;
-            }
-
-            baidu.text2Speech(text, function(res, body) {
-                net.sendCallback(sid, body, callbackURL, function(res, body) {
+    if (!(SESSIONS.includes(sid))) {
+        diagFlow.dialog('start', info, function(buffer, state) {
+            if (state != 'error') {
+                net.sendCallback(sid, buffer, callbackURL, function(res, body) {
                     callback(res, body);
                 }) 
-            });
+                SESSIONS.push(sid);
+            }
         });
     }
 
     // Conversation Time 
-    if ( sid in SESSION_IDS) {
-
+    if (SESSIONS.includes(sid)) {
+        diagFlow.dialog('talking', info, function(buffer, state) {
+            if (state != 'error') {
+                net.sendCallback(sid, buffer, callbackURL, function(res, body) {
+                    callback(res, body);
+                }) 
+            }
+        })
     }
 }
 
 
 app.listen(manifest.vendor.app.port, () => {
-  console.log(`Listening on port ${manifest.vendor.app.port}!`);
+    console.log(`Listening on port ${manifest.vendor.app.port}!`);
 });
